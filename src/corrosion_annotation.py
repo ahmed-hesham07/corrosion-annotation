@@ -44,12 +44,23 @@ def classify_corrosion(mask):
 def overlay_mask(image, mask):
     """
     Creates an overlay image that highlights corrosion regions in red.
+    Instead of using a mask parameter in cv2.addWeighted (which isn't supported),
+    this function blends the entire image with a red layer and then applies the blending
+    only where the mask is non-zero.
     """
-    overlay = image.copy()
+    # Create a red layer
     red_layer = np.zeros_like(image)
-    red_layer[:] = (0, 0, 255)  # Red color in BGR format.
-    alpha = 0.5  # Transparency factor.
-    overlay = cv2.addWeighted(overlay, 1, red_layer, alpha, 0, mask=mask)
+    red_layer[:] = (0, 0, 255)  # Red in BGR
+
+    alpha = 0.5  # Transparency factor for the overlay
+
+    # Blend the entire image with the red layer.
+    blended = cv2.addWeighted(image, 1, red_layer, alpha, 0)
+
+    # Create a copy of the original image to serve as the overlay.
+    overlay = image.copy()
+    # Replace only the pixels where the mask is non-zero with the blended pixels.
+    overlay[mask > 0] = blended[mask > 0]
     return overlay
 
 def process_image(image_path, raw_dir, mask_dir, overlay_dir, annotation_file):
