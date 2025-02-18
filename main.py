@@ -2,7 +2,7 @@ import os
 from src import corrosion_annotation
 
 def main():
-    # Define input and output directories
+    # Define input and output directories.
     input_dir = "input_images"
     output_base = "output_images"
 
@@ -15,10 +15,10 @@ def main():
     os.makedirs(mask_dir, exist_ok=True)
     os.makedirs(overlay_dir, exist_ok=True)
 
-    # Define the annotation file path and clear its contents if it exists.
+    # Define (and clear) the annotation file.
     annotation_file = os.path.join(output_base, "annotations.txt")
     with open(annotation_file, "w") as f:
-        f.write("")  # Clear previous annotations.
+        f.write("")
 
     # Process each image in the input directory.
     for file in os.listdir(input_dir):

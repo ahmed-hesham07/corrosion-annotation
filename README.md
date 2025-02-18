@@ -8,6 +8,14 @@ This project uses Python and OpenCV to automatically detect corrosion areas in i
 - **Overlay Images:** The original image with corrosion areas highlighted.
 - **Annotations:** A text file summarizing the corrosion classification for each image.
 
+## Enhancements in version 1.3
+
+- **Preprocessing:** Bilateral filtering and CLAHE-based contrast enhancement.
+- **Multi-Color Space Thresholding:** Combines HSV, LAB, and YCrCb thresholds with morphological refinement.
+- **Deep Learning Segmentation:** Uses a pre-trained model (`model.h5`) for segmentation.
+- **Ensemble Fusion:** Combines traditional and deep learning masks.
+- **Robust Classification:** Determines corrosion severity from the final mask.
+
 ## Directory Structure
 
 ```
