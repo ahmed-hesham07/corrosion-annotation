@@ -18,7 +18,7 @@ def main():
     # Define the annotation file path and clear its contents if it exists.
     annotation_file = os.path.join(output_base, "annotations.txt")
     with open(annotation_file, "w") as f:
-        f.write("")  # Clear any previous annotations.
+        f.write("")  # Clear previous annotations.
 
     # Process each image in the input directory.
     for file in os.listdir(input_dir):
