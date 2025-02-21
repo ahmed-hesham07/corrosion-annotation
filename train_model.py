@@ -1,107 +1,101 @@
+import tensorflow as tf
+tf.keras.utils.generic_utils = tf.keras.utils
+
 import os
 import numpy as np
+import segmentation_models as sm
 import tensorflow as tf
-from tensorflow.keras import layers, models, optimizers
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-# Dimensions for training images and masks
+# Set image dimensions and batch parameters
 IMG_HEIGHT = 256
 IMG_WIDTH = 256
-IMG_CHANNELS = 3
+BATCH_SIZE = 4
+EPOCHS = 20
 
-# Directories for training data
-TRAIN_IMAGES_DIR = "train_images"   # This directory should have a subfolder "Corrosion/"
-TRAIN_MASKS_DIR = "train_masks"     # This directory should have a subfolder "Corrosion/"
+# Directories for training images and masks (must include a subfolder named "Corrosion")
+TRAIN_IMAGES_DIR = "train_images"
+TRAIN_MASKS_DIR = "train_masks"
 
-def build_unet(input_shape=(IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS)):
-    inputs = layers.Input(input_shape)
+# Ensure TensorFlow uses CPU only (optional)
+tf.config.set_visible_devices([], 'GPU')
 
-    # --- Encoder ---
-    c1 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(inputs)
-    c1 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(c1)
-    p1 = layers.MaxPooling2D((2, 2))(c1)
+# Set segmentation_models parameters
+sm.set_framework('tf.keras')
+sm.framework()
 
-    c2 = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(p1)
-    c2 = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(c2)
-    p2 = layers.MaxPooling2D((2, 2))(c2)
+# Choose a backbone – using 'resnet34' (lightweight enough for CPU)
+BACKBONE = 'resnet34'
+preprocess_input = sm.get_preprocessing(BACKBONE)
 
-    # --- Bottleneck ---
-    c3 = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(p2)
-    c3 = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(c3)
+# Define loss and metrics: using a combination of binary crossentropy and Dice loss
+dice_loss = sm.losses.DiceLoss(class_weights=np.array([0.5]))
+bce_loss = tf.keras.losses.BinaryCrossentropy()
+combined_loss = lambda y_true, y_pred: bce_loss(y_true, y_pred) + dice_loss(y_true, y_pred)
 
-    # --- Decoder ---
-    u4 = layers.UpSampling2D((2, 2))(c3)
-    concat4 = layers.concatenate([u4, c2])
-    c4 = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(concat4)
-    c4 = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(c4)
-
-    u5 = layers.UpSampling2D((2, 2))(c4)
-    concat5 = layers.concatenate([u5, c1])
-    c5 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(concat5)
-    c5 = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(c5)
-
-    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(c5)
-    model = models.Model(inputs=[inputs], outputs=[outputs])
+def build_model():
+    model = sm.Unet(BACKBONE,
+                    input_shape=(IMG_HEIGHT, IMG_WIDTH, 3),
+                    encoder_weights='imagenet',
+                    classes=1,
+                    activation='sigmoid')
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+        loss=combined_loss,
+        metrics=[sm.metrics.iou_score]
+    )
     return model
 
-def create_datagen(image_dir, mask_dir, batch_size=8):
-    """
-    Creates two ImageDataGenerators for images and masks, pointing to a single subfolder 'Corrosion'.
-    """
-    image_datagen = ImageDataGenerator(rescale=1./255,
-                                       horizontal_flip=True,
-                                       vertical_flip=True)
-    mask_datagen = ImageDataGenerator(rescale=1./255,
-                                      horizontal_flip=True,
-                                      vertical_flip=True)
+def create_generators(batch_size=BATCH_SIZE):
+    data_gen_args = dict(
+        horizontal_flip=True,
+        vertical_flip=True,
+        rotation_range=20,
+        rescale=1./255
+    )
 
+    image_datagen = ImageDataGenerator(**data_gen_args)
+    mask_datagen = ImageDataGenerator(**data_gen_args)
+
+    # Ensure your training data is organized under a subfolder "Corrosion"
     image_generator = image_datagen.flow_from_directory(
-        image_dir,
+        TRAIN_IMAGES_DIR,
+        classes=["Corrosion"],
+        class_mode=None,
         target_size=(IMG_HEIGHT, IMG_WIDTH),
         batch_size=batch_size,
-        class_mode=None,    # For segmentation, no class labels
-        classes=["Corrosion"],  # <--- Must match your subfolder name
-        seed=1
+        seed=42
     )
     mask_generator = mask_datagen.flow_from_directory(
-        mask_dir,
-        target_size=(IMG_HEIGHT, IMG_WIDTH),
-        batch_size=batch_size,
-        class_mode=None,
-        color_mode="grayscale",
+        TRAIN_MASKS_DIR,
         classes=["Corrosion"],
-        seed=1
+        class_mode=None,
+        target_size=(IMG_HEIGHT, IMG_WIDTH),
+        color_mode='grayscale',
+        batch_size=batch_size,
+        seed=42
     )
-    return image_generator, mask_generator
 
-def combined_generator(image_gen, mask_gen):
-    """
-    A custom Python generator that yields (images, masks) tuples.
-    """
-    while True:
-        # Get next batch of images and masks
-        imgs = next(image_gen)
-        msks = next(mask_gen)
-        yield (imgs, msks)
+    def combined_gen(img_gen, msk_gen):
+        while True:
+            imgs = next(img_gen)
+            msks = next(msk_gen)
+            yield (imgs, msks)
+
+    return combined_gen(image_generator, mask_generator), image_generator.samples
 
 if __name__ == "__main__":
-    # 1) Build and compile the model
-    model = build_unet()
-    model.compile(optimizer=optimizers.Adam(),
-                  loss="binary_crossentropy",
-                  metrics=["accuracy"])
+    model = build_model()
     model.summary()
 
-    # 2) Create the data generators
-    image_gen, mask_gen = create_datagen(TRAIN_IMAGES_DIR, TRAIN_MASKS_DIR, batch_size=4)
-    train_gen = combined_generator(image_gen, mask_gen)
+    train_generator, train_samples = create_generators()
+    steps_per_epoch = train_samples // BATCH_SIZE
 
-    # 3) Fit the model using the custom generator
-    steps_per_epoch = 10  # Adjust based on your dataset size (#batches per epoch)
-    model.fit(train_gen,
-              steps_per_epoch=steps_per_epoch,
-              epochs=20)
+    model.fit(
+        train_generator,
+        steps_per_epoch=steps_per_epoch,
+        epochs=EPOCHS
+    )
 
-    # 4) Save the trained model
     model.save("model.h5")
     print("Model saved as model.h5")
